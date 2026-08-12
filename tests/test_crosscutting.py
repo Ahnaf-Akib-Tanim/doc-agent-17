@@ -2,6 +2,7 @@
 Un-skip and implement alongside the feature. CI runs these."""
 import pytest
 
+
 @pytest.mark.skip(reason="implement with grounding")
 def test_grounding_unsupported_query_abstains():
     """An answer with no supporting evidence must abstain, not fabricate."""

@@ -1,6 +1,8 @@
 """FIXED — typed settings from environment (secrets live here, never in code/config)."""
 from __future__ import annotations
+
 from pydantic_settings import BaseSettings
+
 
 class Settings(BaseSettings):
     llm_api_key: str = ""

@@ -1,9 +1,10 @@
 """Stage 8 — FastAPI service"""
 from __future__ import annotations
-from ..contracts import *  # noqa
 
 from fastapi import FastAPI
-from .. import config, pipeline
+
+from .. import config
+from ..contracts import *  # noqa
 
 app = FastAPI(title="doc-agent")
 _cfg = config.load()

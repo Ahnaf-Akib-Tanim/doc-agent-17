@@ -1,6 +1,8 @@
 """LLM — answer post-process / format / abstention"""
 from __future__ import annotations
+
 from ..contracts import *  # noqa
+
 
 def format_answer(raw: str, citations: list) -> Answer:
     """Attach citations, set grounded/confidence, enforce abstention. IMPLEMENT."""

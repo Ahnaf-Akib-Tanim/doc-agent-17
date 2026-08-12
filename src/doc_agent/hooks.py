@@ -1,8 +1,9 @@
 """FIXED — cross-cutting seam. Horizontal features register handlers here; the pipeline and agent
 call run() at fixed seams. Do NOT add/remove seams or the hooks.run() calls that use them."""
 from __future__ import annotations
+
 from collections import defaultdict
-from typing import Callable
+from collections.abc import Callable
 
 # The only points where cross-cutting code runs.
 AFTER_INGEST = "after_ingest"

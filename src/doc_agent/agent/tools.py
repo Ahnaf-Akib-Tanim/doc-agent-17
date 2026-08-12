@@ -1,8 +1,10 @@
 """Stage 6 — FIXED tool interface — the agent's tools"""
 from __future__ import annotations
-from ..contracts import *  # noqa
 
 from abc import ABC, abstractmethod
+
+from ..contracts import *  # noqa
+
 
 class Tool(ABC):
     name: str
