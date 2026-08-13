@@ -1,7 +1,33 @@
 # Stage 0 — problem statement (one per group). Set by assignment.
-group_id: "G00"
-domain: "almanacs/panjika"
-data_speciality: "degraded-scans"   # ONE hard corpus property (English is not one)
-primary_nfr: "reproducible"
-nfr_target: "p95 latency <= 300ms"   # your concrete committed target
-corpus: {min_pages: 300, min_words: 60000, source_url: "", license: ""}
+group_id: "17"
+project_name: "Biodiversity & Species Knowledge Assistant (BSKA)"
+domain: "biodiversity & species knowledge — historical palaeontology monographs"
+data_speciality: "table/figure-heavy"   # ONE hard corpus property (English is not one)
+primary_nfr: "robust"
+nfr_target: "answer-F1 retention >= 0.90 under the fixed perturbation suite; worst-slice answer-F1 >= 0.60; false-answer rate <= 0.05"
+
+# The single headline answer-quality number, fixed in A1 and NOT changed here.
+success_metric: {name: "answer-F1 on the verifiable subset of grading_kit/tasks.jsonl", target: 0.70}
+lazy_baseline: {name: "top-1 retrieved chunk returned verbatim", expected: 0.06}
+
+# The user this is built for; drives what counts as a good answer.
+user: "vertebrate-palaeontology collections curator / taxonomist establishing publication priority"
+
+corpus:
+  min_pages: 300
+  min_words: 60000
+  pages: 904
+  words: 240893
+  source_url: "https://www.biodiversitylibrary.org/browse/collection/extinct"
+  license: "link-only: 3 volumes public domain (CC0 / no longer in copyright), 1 volume AMNH educational-use only — see data/provenance.md"
+  documents:
+    - {doc_id: lucas_1901,   title: "Animals of the Past",  author: "Frederic A. Lucas",  year: 1901, ia_identifier: "animalsofthepast00luca", pages: 324, split: train}
+    - {doc_id: gilmore_1914, title: "Osteology of the Armored Dinosauria in the United States National Museum", author: "Charles W. Gilmore", year: 1914, ia_identifier: "osteologyofarmor00gilm", pages: 234, split: train}
+    - {doc_id: colbert_1945, title: "The Dinosaur Book", author: "Edwin H. Colbert", year: 1945, ia_identifier: "dinosauruli13colb", pages: 164, split: val}
+    - {doc_id: leidy_1853,   title: "The Ancient Fauna of Nebraska", author: "Joseph Leidy", year: 1853, ia_identifier: "ancientfaunaofne00leid", pages: 182, split: test}
+
+# Changed since A1, recorded here rather than quietly: A1 declared Allen 1876 "American bisons".
+# We replaced it with Gilmore 1914 and Lucas 1901 because both carry our declared data
+# speciality harder — Gilmore prints dense USNM measurement tables and 40 numbered plates,
+# Lucas is figure-led — and the swap raised the corpus from 677 to 904 pages. The three axes
+# (domain, data speciality, primary NFR) and the success metric are unchanged from A1.

@@ -1,6 +1,23 @@
-data/raw/
-data/interim/
-*.ckpt
-wandb/
 __pycache__/
 .venv/
+*.ckpt
+wandb/
+.ipynb_checkpoints/
+
+# The corpus is LINK-ONLY (see data/provenance.md): Colbert 1945 is AMNH copyright, released for
+# personal / educational use with no redistribution grant. Scans are never committed; use
+# scripts/get_data.sh.
+data/raw/
+data/index/
+
+data/interim/*
+# ...except our Stage-3 reader output for the three PUBLIC-DOMAIN volumes. These are our own
+# transcriptions, they let anyone rebuild the index without a GPU, and on their own they still clear
+# the corpus floor (740 pages / 179,616 words vs the required 300 / 60,000).
+!data/interim/ocr/
+data/interim/ocr/*
+!data/interim/ocr/lucas_1901.md
+!data/interim/ocr/gilmore_1914.md
+!data/interim/ocr/leidy_1853.md
+# data/interim/ocr/colbert_1945.md is deliberately withheld — redistributing a full transcription of
+# a copyrighted volume is the same act as redistributing the scan.
