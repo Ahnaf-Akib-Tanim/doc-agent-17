@@ -1,35 +1,80 @@
 # grading_kit/manifest.yaml — the SINGLE entry point a grader reads.
-# You fill this in. It declares the THREE axes and points to everything
-# needed to reproduce, evaluate, and grade the project. A grader opens
-# ONLY this file; it points to the rest. Build/run scripts and the eval
-# tasks are NAMED here, not copied, so they never go stale.
+# Declares the THREE axes and points to everything needed to reproduce, evaluate and grade.
+# Nothing here is copied from elsewhere in the repo; every path is NAMED so it cannot go stale.
 
-project_id: ""              # your team id
+project_id: "17"
+project_name: "Biodiversity & Species Knowledge Assistant (BSKA)"
+team:
+  - {name: "Niloy Das Robin",  student_number: "2105019"}
+  - {name: "Gourove Roy",      student_number: "2105017"}
+  - {name: "Ahnaf Akib Tanim", student_number: "2105154"}
 
 axes:
-  domain: ""                # your corpus subject / real user (see Roster; one per team)
-  data_speciality: ""       # ONE hard property of your corpus you are handed (see Data-Speciality Catalog)
-                            #   e.g. bangla | arabic | code-switching | degraded-scans | multi-column |
-                            #        handwritten | old-orthography | math-notation | dirty-ocr | ...
-                            #   (English is not a speciality; if your corpus is English, pick a data condition.)
-  primary_nfr: ""           # ONE quality you optimise ABOVE baseline (see NFR sheet). Faithful &
-                            #   accurate are REQUIRED of everyone (baseline), so they are NOT choices.
-  nfr_target: ""            # the concrete target you commit to for that NFR, e.g. "p95 latency <= 300ms",
-                            #   "peak RAM <= 2GB", "ECE <= 0.05", "PII recall >= 0.98"
+  domain: "biodiversity & species knowledge — historical palaeontology monographs (1853-1945).
+           User: a vertebrate-palaeontology collections curator or taxonomist establishing whether a
+           measurement, synonymy or figured type specimen has already been published, and which
+           volume, page and plate to cite for it."
+  data_speciality: "table/figure-heavy"
+                            #   97 of 904 pages carry a measurement or quarry table; 96 are full-page
+                            #   lithographic plates whose legends are printed on separate leaves;
+                            #   Colbert 1945 is largely two-column. The load-bearing content is not
+                            #   prose, so region detection alone is not enough — Stage 2 recovers the
+                            #   table grid and Stage 4 keeps one chunk per table ROW.
+  primary_nfr: "robust / reliable"
+                            #   answer quality must not collapse when the page is faint, skewed,
+                            #   badly read, or is a table or a plate rather than prose.
+  nfr_target: "answer-F1 retention >= 0.90 under the fixed perturbation suite (rotation +/-7 deg,
+               JPEG q40, blur sigma=1.0, 60% downscale, shadow/vignette);
+               worst-slice answer-F1 >= 0.60 across {volume x page_kind};
+               false-answer rate <= 0.05 under perturbation."
+
+success_metric:             # unchanged from A1; A3 is judged on it
+  name: "answer-F1 on the verifiable subset of grading_kit/tasks.jsonl (a correct abstention on an
+         unanswerable item counts as a hit)"
+  target: 0.70
+  lazy_baseline: "return the top-1 retrieved chunk verbatim -> answer-F1 ~= 0.06 by construction
+                  (gold spans are ~3 tokens, a chunk is ~95)"
 
 corpus:
-  path: data/raw/                   # where the scanned page-images live
-  pages: 0                          # total pages  (floor: >= 300)
-  words: 0                          # total words  (floor: >= 60000)
-  provenance: data/provenance.md    # source + licence + counts
+  path: data/raw/                   # 4 volumes, git-ignored (link-only licence — see provenance)
+  documents: 4
+  pages: 904                        # floor: >= 300
+  pages_indexed: 765                # after blank/verso removal; all 96 plates retained
+  words: 240893                     # floor: >= 60000
+  version: "corpus_64f400d6"        # data/raw/corpus.lock.json, from data.versioning.snapshot()
+  provenance: data/provenance.md
+  splits:                           # DOCUMENT-level, assigned in configs/config.yaml only
+    train: [lucas_1901, gilmore_1914]
+    val:   [colbert_1945]
+    test:  [leidy_1853]             # faintest volume, 22 plates — the NFR is measured here
 
 heldout:
-  pages_dir: grading_kit/heldout_pages/   # page-images set aside, never OCR-trained on
+  pages_dir: grading_kit/heldout_pages/   # 16 page-images, never used to tune any threshold
   labels:    grading_kit/labels.jsonl     # ground-truth transcriptions for those pages
+  selection: "seeded (42), stratified 4 volumes x {prose, table-bearing, plate}. The 17 pages used
+              while calibrating the Stage-1 and Stage-2 thresholds are excluded by name — a threshold
+              tuned by looking at a page cannot be evaluated on that page. See notebooks/eda.ipynb."
+  label_source: "independent second reader (Gemini 3 Flash — different vendor and architecture from
+                 our Stage-3 Qwen3-VL reader), team-adjudicated against the page image. Using a
+                 second reader rather than our own means the OCR score is not self-graded."
+
+models:                             # what actually ran; parameters live in configs/config.yaml
+  layout: "heuristic:rlsa-cc-grid (figure-first masking, column gutters, whitespace table grid)"
+  ocr:    "Qwen/Qwen3-VL-8B-Instruct (fp16, 2xT4, page-level structured prompt)"
+  ocr_baseline: "microsoft/trocr-base-printed (line recogniser, CPU) — reproduced for comparison"
+  embed:  "BAAI/bge-small-en-v1.5 (384-d, L2-normalised)"
+  index:  "FAISS HNSW, M=32, efConstruction=200, efSearch=64, inner product"
 
 entrypoints:                          # named, not duplicated (they build/run the real code)
-  build_index: scripts/build_index.sh
-  run_query:   scripts/run.sh
+  get_data:    scripts/get_data.sh          # fetch + SHA-256 verify the corpus
+  build_index: scripts/build_index.sh       # ONE command: raw PDFs -> data/index/
+  demo:        notebooks/kb_demo.ipynb      # OCR quality + a working retrieval (A2 evidence)
+  eda:         notebooks/eda.ipynb          # corpus exploration + the held-out slice
+  run_query:   scripts/run.sh               # A3
   eval_tasks:  grading_kit/tasks.jsonl      # authored in A3
-  checker:     grading_kit/success_check.py
-  trace:       traces/run.jsonl              # JSONL trajectory the A3 agentic-feature check reads
+  checker:     grading_kit/success_check.py # A3
+  trace:       traces/run.jsonl             # A3 — JSONL trajectory the agentic-feature check reads
+
+status:
+  a2: "knowledge base built and evidenced. Stages 1-4 implemented; index in data/index/."
+  a3: "not started — retrieval, agent loop, tools, evaluation, evidence-gated re-search."
