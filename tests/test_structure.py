@@ -1,5 +1,6 @@
 """STRUCTURE LOCK — CI fails if required modules/callables/signatures drift."""
-import importlib, inspect
+import importlib
+import inspect
 
 REQUIRED = {
     "doc_agent.pipeline": ["build_knowledge_base", "answer"],

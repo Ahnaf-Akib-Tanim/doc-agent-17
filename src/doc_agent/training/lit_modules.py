@@ -1,8 +1,10 @@
 """Training — Lightning modules per trainable component"""
 from __future__ import annotations
-from ..contracts import *  # noqa
 
 import lightning as L
+
+from ..contracts import *  # noqa
+
 
 class LitComponent(L.LightningModule):
     """Wrap enhancer / OCR / retriever training. IMPLEMENT training_step + configure_optimizers."""

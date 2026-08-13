@@ -2,10 +2,12 @@
 register_all() wires every horizontal feature into the hook seams. If a feature is not listed here,
 it is not wired anywhere. Implement each feature's register() in its owning module."""
 from __future__ import annotations
+
 from . import hooks, logging_conf
-from .governance import pii
 from .agent import guardrails
+from .governance import pii
 from .llm import postprocess
+
 
 def register_all(cfg: dict) -> None:
     hooks.clear()

@@ -1,6 +1,11 @@
 """Deterministic seeds (reproducibility gate)."""
-import random, numpy as np, torch
+import random
+
+import numpy as np
+import torch
+
 from doc_agent import config
+
 
 def main() -> None:
     s = config.load()["seed"]

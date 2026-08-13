@@ -1,12 +1,14 @@
 """FIXED end-to-end order (Stages 0-9) + cross-cutting seams.
 Do not reorder stages or remove hooks.run()/register_all() calls."""
 from __future__ import annotations
+
 from . import config, hooks, wiring  # noqa: F401
-from .ingest import loader, preprocess, enhance
-from .vision import layout, ocr
-from .index import chunk, embed, store
-from .retrieval import retriever
 from .agent import agent
+from .index import chunk, embed, store
+from .ingest import enhance, loader, preprocess
+from .retrieval import retriever
+from .vision import layout, ocr
+
 
 def build_knowledge_base(cfg: dict) -> None:
     wiring.register_all(cfg)                        # wire cross-cutting features

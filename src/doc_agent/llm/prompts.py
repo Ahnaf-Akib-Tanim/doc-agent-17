@@ -1,5 +1,6 @@
 """LLM — FIXED prompt template registry (all prompts live here)"""
 from __future__ import annotations
+
 from ..contracts import *  # noqa
 
 # Fill the template bodies; do NOT scatter prompt strings elsewhere.

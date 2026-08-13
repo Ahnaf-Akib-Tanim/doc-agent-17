@@ -1,6 +1,8 @@
 """Stage 6 — SECURITY — autonomy, budgets, prompt-injection defense"""
 from __future__ import annotations
+
 from ..contracts import *  # noqa
+
 
 class Guardrails:
     """Enforce autonomy level, step/cost budget, and instruction/content isolation."""

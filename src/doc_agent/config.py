@@ -1,7 +1,10 @@
 """FIXED config loader."""
 from __future__ import annotations
-import yaml
+
 from pathlib import Path
+
+import yaml
+
 
 def load(path: str | Path = "configs/config.yaml") -> dict:
     with open(path) as f:

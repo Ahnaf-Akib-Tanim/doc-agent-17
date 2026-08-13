@@ -1,6 +1,8 @@
 """Stage 6 — working/episodic memory"""
 from __future__ import annotations
+
 from ..contracts import *  # noqa
+
 
 class Memory:
     def __init__(self) -> None:

@@ -1,6 +1,8 @@
 """Stage 9 — metrics"""
 from __future__ import annotations
+
 from ..contracts import *  # noqa
+
 
 def ocr_f1(pred: str, gold: str) -> float: raise NotImplementedError
 def recall_at_k(retrieved: list, gold: list, k: int) -> float: raise NotImplementedError

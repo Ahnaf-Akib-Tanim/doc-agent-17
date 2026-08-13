@@ -1,6 +1,8 @@
 """End-to-end tiny run. Passes once students implement the stages."""
 import pytest
+
 from doc_agent import config, pipeline
+
 
 @pytest.mark.skip(reason="enable after implementing stages")
 def test_answer_is_grounded_and_cited():

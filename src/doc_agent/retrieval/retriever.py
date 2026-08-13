@@ -1,6 +1,8 @@
 """Stage 5 — dense retrieval"""
 from __future__ import annotations
+
 from ..contracts import *  # noqa
+
 
 class Retriever:
     def __init__(self, cfg: dict) -> None:

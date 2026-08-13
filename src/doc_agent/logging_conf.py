@@ -1,6 +1,9 @@
 """FIXED — structured logging (auditable NFR). Use get_logger(), never print()."""
 from __future__ import annotations
-import logging, sys
+
+import logging
+import sys
+
 
 def get_logger(name: str) -> logging.Logger:
     lg = logging.getLogger(name)

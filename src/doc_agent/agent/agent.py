@@ -2,9 +2,11 @@
 Implement decide() and synthesize() only. Security, grounding, PII, and tracing run via hooks at the
 marked seams - do NOT inline them here."""
 from __future__ import annotations
-from ..contracts import *  # noqa
+
 from .. import hooks
+from ..contracts import *  # noqa
 from .memory import Memory
+
 
 class Agent:
     """FIXED loop. Implement decide() (the policy) and synthesize() only."""

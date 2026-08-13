@@ -1,6 +1,8 @@
 """FIXED data contracts. Do not change fields or types."""
 from __future__ import annotations
+
 from pydantic import BaseModel
+
 
 class Page(BaseModel):
     id: str
