@@ -1,0 +1,506 @@
+=== HEADER ===
+Team member name    : Ahnaf Akib Tanim
+Student number      : 2105154
+Project name        : Biodiversity & Species Knowledge Assistant (BSKA)
+Milestone           : Assignment 2 — Build the Knowledge Base
+Worked sections     : 4 (The Knowledge Base We Built), 7 (Design Choices & Justification),
+                       8 (AI-chat transcript)
+Code owned           : Stage 2 — vision/layout.py; Stage 4 — index/chunk.py, embed.py, store.py;
+                       governance/pii.py; configs/design_choices.md; reports/pipeline_diagram.md
+
+=== FULL AI–HUMAN CONVERSATION ===
+
+ME:
+I am responsible for the Stage 2 layout detector, Stage 4 chunking/embedding/indexing, governance,
+Section 4 and the design-choice table in Section 7. I want the transcript to show the actual decisions,
+including bugs and rejected alternatives, rather than making it look like I already knew the final
+architecture.
+
+The assignment describes the output as a searchable knowledge base. Our final numbers are 765 indexed
+pages, 3,626 regions and 2,902 chunks, with 384-dimensional embeddings in FAISS HNSW. But I want to
+explain why those numbers and structures exist.
+
+Where should I start?
+
+AI:
+Start from the retrieval unit rather than the index.
+
+The assignment's real requirement is not "build a vector database." It is to turn the scans into
+searchable evidence in which the retrieval unit corresponds to what a curator asks about: a table
+row, a plate legend, or a paragraph.
+
+Once that is the objective, Stage 2 and Stage 4 become easier to justify. Stage 2 must recover the
+structure that tells you what belongs together. Stage 4 must preserve that structure in chunks and
+metadata. Embedding and FAISS are then implementation choices for retrieving those units.
+
+Your design table should therefore repeatedly answer three questions: what information does the stage
+preserve, why does the corpus require it, and what failure or cost would cause you to change the design?
+
+ME:
+A1 proposed DocLayout-YOLO fine-tuned from DocLayNet. We do not have corpus-specific region labels,
+and the corpus contains 1853–1945 scans, lithographic plates and tables where columns are defined by
+alignment. I chose a heuristic: RLSA + connected components + measured grid recovery.
+
+How do I make that choice look like an engineering decision rather than "we didn't have a GPU"?
+
+AI:
+Do not make hardware the primary justification. Make corpus mismatch the primary justification.
+
+DocLayNet is designed around modern born-digital document layouts. Your corpus contains full-page
+lithographic plates, old typography, irregular spacing and tables whose semantics are encoded by
+alignment rather than necessarily by modern table borders. There is no natural DocLayNet class for
+the specific plate/legend relationship you need.
+
+Your heuristic also has three capabilities that are directly tied to the speciality:
+1. it detects figures before line finding and masks them so plate texture does not become fake text;
+2. it recovers column bounds before grouping blocks into reading order;
+3. it recovers a table grid so Stage 4 can construct row-level retrieval units.
+
+Then state the cost honestly. The heuristic can over-fire on numbered lists, and the thresholds are
+corpus-derived rather than universally valid. If you later obtain a sufficiently large hand-labelled
+region set, fine-tuning a detector becomes a reasonable alternative.
+
+ME:
+I had a table detector based on two persistent vertical whitespace corridors. It looked plausible on
+one table, but ordinary justified prose from Lucas triggered it.
+
+I measured line fill and internal gaps. Prose lines fill around 0.58–0.74 of their own span, while
+table rows are around 0.25–0.54. In tables, 67–100% of rows have a wide internal gap; prose is around
+0–52%.
+
+I ended up with: table iff at least three rows, at least 60% gapped rows and mean fill <= 0.55.
+
+AI:
+That is a much stronger detector because the rule now has a measured separation between two classes.
+
+The important part for the design document is not only the final threshold. Explain what each statistic
+means.
+
+Line fill measures how continuously ink occupies the line's horizontal span. Justified prose tends to
+form a relatively continuous text line, while a row of separated table cells has larger internal
+whitespace. The fraction of rows containing a wide gap adds a structural consistency condition so one
+unusual prose line does not create a table.
+
+The "at least three rows" condition prevents isolated line patterns from being promoted to a table.
+The 60% gap condition says the behaviour must persist across the region rather than appearing once.
+The 0.55 fill threshold is derived from the observed ranges rather than copied from a generic detector.
+
+That also gives you a natural "what would change it": a new volume with a substantially different
+typographic distribution would require recalibration on that volume, or eventually supervised region
+labels.
+
+ME:
+After the change I get 151 table regions. The grid recovery usually produces a few rows and columns,
+with a median around six rows by two columns.
+
+I am worried about overfitting because we only have four volumes.
+
+AI:
+That concern should be included rather than hidden.
+
+The correct mitigation is not to pretend the thresholds are universal. First, derive them from measured
+corpus distributions. Second, evaluate them across all four volumes rather than one page. Third, keep
+the thresholds centralized in configuration so a new volume can trigger recalibration without changing
+the code.
+
+Also remember that Stage 2 is not the final classifier. Its output is consumed by OCR and chunking.
+The downstream evaluation tells you whether the structural errors matter for retrieval. A detector
+that has a slightly imperfect region label but preserves the table grid may be more useful than a
+generic detector that gives a visually plausible bounding box but loses column relationships.
+
+ME:
+Figure detection was much worse initially. The detector found almost no figures and the plate pages
+were being split into seven or twelve fake text lines.
+
+The fix was to detect figures first, on grayscale, using close(15)+open(9), requiring at least 5% page
+area and at least 10% ink after morphology.
+
+Why is grayscale so important when the reader itself uses Sauvola?
+
+AI:
+Because the two operations have different objectives.
+
+Sauvola is a local thresholding method. It is useful when the foreground/background relationship varies
+across the page and you need to preserve faint text. But lithographic plates are often defined by
+global texture and contiguous dark regions. Local thresholding can break the texture into disconnected
+pieces.
+
+For figure detection, grayscale plus a global threshold and morphology preserves the large-scale
+solidity that tells you "this is an image region." For OCR, Sauvola creates a reader image that improves
+local contrast for text. There is no contradiction in using different representations.
+
+In fact, using one representation for everything would be less principled. The pipeline has multiple
+consumers with different invariants. Keep raw, clean and reader images separately, and document why
+each exists.
+
+ME:
+There is another subtle reason for figure-first ordering. If I mask the figure before line grouping,
+the caption below an embedded photograph is detected separately rather than being swallowed into the
+figure blob.
+
+AI:
+Exactly. That gives you a nice structural argument for the ordering.
+
+The figure mask prevents picture texture from contaminating line detection, while the caption remains
+outside the mask and can become an independent text block. That is important because in A3 the agent
+may need both the plate image and its legend/caption.
+
+It also explains why "figure detection before blank filtering" is not merely an implementation detail.
+The figure is evidence. A blank-page classifier that runs first can accidentally delete a low-ink plate
+before the pipeline has recognized what it is.
+
+ME:
+One bug nearly survived because it didn't crash. I expected 3,626 regions over 765 kept pages, but
+regions.jsonl only contained entries for the last page of each document.
+
+I found this:
+open(path, "w")
+inside the per-page loop.
+
+AI:
+That is exactly the kind of bug that deserves to be in the transcript.
+
+Opening a file with "w" truncates it. Because the call is inside the page loop, every page deletes the
+manifest produced by the previous page and writes its own regions. The program succeeds because the
+file operation is valid. The resulting JSONL is syntactically correct, just semantically incomplete.
+
+There are two clean fixes. Keep one write handle open across the entire loop, or accumulate all regions
+and write once after processing. Given 3,626 regions, accumulate-then-write is perfectly reasonable
+and makes the final output deterministic.
+
+But the bigger lesson is to add an invariant check. A manifest should not merely exist and parse.
+Check the count and perhaps the page coverage. Your final breakdown of 3,075 text, 204 heading,
+196 figure and 151 table regions gives you a concrete sanity target.
+
+ME:
+I used accumulate-then-write. The rebuilt manifest now has the expected 3,626 regions.
+
+I want to connect that to our testing philosophy. We have ruff/black, pytest and structure/contracts/
+tools gates, but many of our dangerous failures are silent: a split leak, a deleted plate, a manifest
+truncation, or a chunker exceeding its token budget.
+
+AI:
+That should be explicitly stated in the design section.
+
+Traditional unit tests catch exceptions and local logic errors. Your pipeline also needs data invariants
+because many failures produce perfectly valid files.
+
+For example:
+- every page ID must be unique;
+- every image path must exist;
+- doc_id must map to exactly one split;
+- figure/table counts should be within plausible corpus distributions;
+- regions should cover the expected page IDs;
+- chunk size should obey the configured bound;
+- the 17 threshold-calibration pages must be excluded from the held-out OCR slice.
+
+This is why data/validate.py asserts the >=300-page and >=60k-word floors as well as structural
+properties. The checks are cheap compared with rerunning OCR, so they should fail before an invalid
+index is published.
+
+ME:
+Now Stage 4. The semantic chunker makes one unit per table row and carries the header into each row.
+I want to explain why this is better than ordinary fixed-size chunking.
+
+On the same page, structure mode produces 38 units averaging around 22 tokens. Fixed mode produces only
+3 units around 170 tokens. A structure unit can directly answer "which value is in this row?" while
+the fixed chunk flattens the grid.
+
+AI:
+That is the correct argument, but add the cost.
+
+A semantic chunking strategy is valuable when the retrieval unit corresponds to a real information
+object. For a table, a row plus its header is an information object. A fixed token window can split
+a header from its values or combine several rows, forcing the answerer to reconstruct the table from
+a flattened sequence.
+
+However, semantic chunking can increase the number of near-duplicate candidates. Your later quarry
+failure proves that cost. So the correct design statement is not "semantic chunks are always better."
+It is "semantic chunks better preserve table semantics, but they increase candidate duplication and
+therefore motivate caption propagation, hybrid retrieval and reranking in A3."
+
+That tradeoff makes the design decision much more defensible.
+
+ME:
+The chunker initially exceeded its own 256-token target. Some chunks reached 440 because the overlap
+logic carried an entire trailing paragraph into the next buffer.
+
+I changed the overlap to word-based. After emitting a chunk, only the last 32 words are carried over.
+The new maximum is 288.
+
+AI:
+That is a clean invariant.
+
+If the target is 256 and the overlap is 32, the carry-over cannot exceed 32 words by construction.
+Therefore the maximum expected chunk length is bounded at target + overlap, assuming the implementation
+checks the next token before appending.
+
+The useful test is not just "maximum happened to be 288 on this build." Add a test that constructs a
+long trailing paragraph and verifies that the overlap itself remains bounded. That turns the observed
+bug into a regression test.
+
+Also preserve the chunking mode in meta.json because A3 evaluation labels will point at chunk IDs. If
+you change the chunker and rebuild without changing the corpus/index metadata, you can invalidate the
+meaning of those IDs.
+
+ME:
+The final index has 2,902 chunks. We use BAAI/bge-small-en-v1.5, 384 dimensions, L2-normalized, batch
+size 64, and FAISS HNSW with M=32, efConstruction=200, efSearch=64.
+
+I originally wanted to say HNSW is faster than flat search, but the index is only 2,902 vectors.
+
+AI:
+Do not claim that without measuring it.
+
+At 2,902 vectors, exact flat inner-product search is already cheap. HNSW is an architectural choice
+that gives you a path toward larger corpora, but you should evaluate its approximation quality against
+flat search on the current corpus.
+
+If HNSW recall@1 is imperfect but recall@5 and recall@10 are effectively exact, you can justify it as
+a candidate-generation index rather than pretending it is strictly superior.
+
+This is a good example of how to write the design table: "chosen for scalable approximate retrieval;
+measured against exact flat; current corpus is small enough that the benefit is not latency but a
+reasonable scaling path."
+
+ME:
+The measured HNSW recall is 0.889 at @1 and 1.000 at @5 and @10.
+
+AI:
+Then report all three. The 0.889 @1 result is important because it tells the marker you actually
+measured the approximation. The perfect @5/@10 values explain why it is still usable as a candidate
+generator.
+
+It also connects naturally to A3 reranking. If the top candidate is not always exact, retrieving the
+top 50 and reranking them gives the agent more evidence rather than depending on a single approximate
+nearest neighbour.
+
+ME:
+I chose bge-small rather than the A1 BGE-M3 1024-dimensional model because I wanted CPU rebuildability
+and a small reproducible index. But I haven't benchmarked BGE-M3.
+
+AI:
+Then say exactly that.
+
+Do not claim bge-small is more accurate. Your evidence supports a reproducibility/operational choice,
+not an accuracy superiority claim. At 2,902 chunks, the vector set is only a few megabytes, so the
+memory saving is not even the main argument.
+
+The better argument is that a smaller encoder makes local rebuilds and notebooks easier to reproduce,
+while the current measured failure is not primarily a vector-dimensionality problem. The quarry failure
+comes from near-identical rows and missing caption context, which a larger bi-encoder may not solve.
+
+A3 should therefore test the direct interventions: context propagation, hybrid retrieval and reranking.
+
+ME:
+There was a governance problem too. pii.py hangs on some pages with rising memory. The regex
+`\b(?:\d[ -]?){13,16}\b` is supposed to detect long identifier-like numbers.
+
+AI:
+The repeated optional separator is the concern. A regex engine can explore many alternative ways of
+matching a long sequence of digits and separators, particularly on near-miss strings.
+
+Because your corpus contains measurement tables, long digit sequences are not unusual. That means a
+bad regex is not merely slow on pathological input; it can interact with normal historical data.
+
+Replace the repeated optional separator with a pattern that has fixed structure and bounded repetition.
+Then add a regression test containing a long numeric run and a near-miss string. The test should assert
+both the expected detection result and a reasonable execution path.
+
+ME:
+After changing it, the hang disappeared.
+
+There is also a semantic governance question. I don't want to auto-redact every name because names such
+as Leidy and Gilmore are actually bibliographic evidence. The current policy detects name signals but
+queues them for human review; direct identifiers are auto-redacted.
+
+AI:
+That is a domain-aware governance decision.
+
+A generic PII filter may classify any person name as something to remove. But in a historical palaeontology
+knowledge base, names can be the very evidence needed to identify a publication, author, specimen or
+taxonomic reference.
+
+So your two-tier policy makes sense:
+- direct identifier signals can be automatically redacted;
+- ambiguous name signals are reviewed rather than automatically removed.
+
+The important part is that the policy is explicit and testable. Record the number of spans queued for
+review and automatic redactions, and keep the governance stage on a defined pipeline seam such as
+AFTER_OCR.
+
+ME:
+I had a typing issue because pii.py's register function accepted the concrete hooks module, but importing
+hooks.py only for a type annotation created unnecessary coupling. mypy has disallow_untyped_defs enabled.
+
+AI:
+Use a structural Protocol.
+
+Define only the seam attributes that pii.py actually needs, such as AFTER_OCR, BEFORE_ANSWER, ON_LOG
+and register(...). The concrete hooks implementation can satisfy that interface without pii.py importing
+the concrete module.
+
+This is a good example of using typing to preserve architecture rather than adding type annotations
+after the fact. The governance module should depend on the seam contract, not on the wiring implementation.
+
+ME:
+store.py had another typing issue. HNSW and IVF branches both used a variable called idx but the
+branches returned different concrete FAISS types. I renamed the IVF variable and mypy became clean.
+
+AI:
+That is another small but meaningful example of making implementation choices explicit.
+
+Even if the branches are mutually exclusive at runtime, static type inference sees the variable being
+assigned different concrete types. Separate names make the branch-local type obvious and reduce the
+chance of accidentally mixing APIs.
+
+You can mention it briefly in the transcript, but the larger point is that the repository is intended
+to be reproducible evidence, so ruff, black, pytest and mypy are part of the build quality rather than
+separate cosmetic checks.
+
+ME:
+I want to describe the contracts. The locked Page contract only has three fields and Region also has
+three. Yet our corpus needs page kind, quality band, skew, column index, normalized bounding boxes and
+table grids.
+
+So I moved those corpus-specific fields into JSONL side tables keyed by page_id.
+
+AI:
+That is a strong architecture because it preserves the locked interfaces while making the speciality
+information first-class and inspectable.
+
+The side tables should be explicit artifacts, not hidden Python dictionaries. pages_meta.jsonl carries
+preprocessing information. regions.jsonl carries reading order, column index, bbox_norm and table grid.
+chunks.jsonl carries the retrieval text and citation metadata.
+
+This also makes debugging easier. If an answer is wrong in A3, you can trace it backward from the chunk
+to the region, page and original source image without depending on an opaque database.
+
+ME:
+The final one-line pipeline is:
+pages -> measure/clean -> enhancement OFF -> figure-first layout -> OCR -> structure-aware chunking
+-> normalized embedding -> FAISS HNSW.
+
+Two deviations from the default diagram are important: figure detection runs before line finding and
+blank filtering, and Stage 2 output feeds the chunker rather than being only a visualization artifact.
+
+AI:
+Those two deviations should be prominent in Section 7 because they are where your corpus speciality
+actually changed the architecture.
+
+The first protects the data speciality. If the default order deletes plates or shreds them into fake
+lines, then following the default is actively harmful.
+
+The second closes the information loop. Recovering a table grid is only useful if the grid survives
+into the retrieval representation. Otherwise Stage 2 would produce a beautiful intermediate artifact
+that Stage 4 ignores.
+
+The architecture can therefore be described as a chain of contracts:
+Page -> Region -> OCR block -> semantic chunk -> embedding/index metadata.
+Each stage must preserve the information required by the next one.
+
+ME:
+There is a reading-order failure that I want to make part of the A3 plan. gilmore_1914_p0069 gets
+97.3% char-F1 but 36.3% CER because the characters are almost all present but in the wrong order.
+Stage 2 calculates column-first order, but the page-cache path only types the blocks.
+
+AI:
+Then the A3 fix is quite localized.
+
+Do not change the OCR model first. The evidence says the characters are there. Change the replay path
+so the cached blocks are sorted according to the Stage 2 reading_order/column information before the
+final transcription is assembled.
+
+Add that exact page to a regression test. The test should assert both content presence and ordering,
+because a character-level metric alone would miss the failure.
+
+This is also a good argument for keeping reading_order in regions.jsonl rather than treating layout as
+just bounding boxes.
+
+ME:
+For A3 I have around 120 tasks: about 30 measurement lookups, 25 plate/figure identifications, 20
+taxonomy/synonymy, 15 cross-volume comparisons, 20 deliberately unanswerable questions, and about 10
+adversarial spellings based on actual reader corruptions.
+
+Gold includes short answer spans plus chunk IDs and bounding boxes. At least one needs_research true/
+false pair is required, and the quarry-table case is the natural research trigger.
+
+AI:
+That is a strong evaluation set because it matches the declared curator workflow rather than generic
+semantic search.
+
+The measurement tasks test whether row/header structure survives. Plate tasks test whether figure and
+legend information survive even when they are on different leaves. Taxonomy tests semantic retrieval.
+Cross-volume tasks test multi-document reasoning. Unanswerable questions test abstention. Adversarial
+spellings test robustness against OCR corruption.
+
+The needs_research pair is particularly important for A3. It lets you evaluate whether the agent can
+recognize that the top retrieved chunk is insufficient rather than treating the first retrieval as the
+answer.
+
+Run the same tasks on perturbed renders of the gold pages so robustness is measured at answer level.
+That connects the knowledge-base build to the A1 NFR instead of evaluating OCR and retrieval in isolation.
+
+ME:
+The perturbation suite is fixed: rotation ±7 degrees, JPEG quality 40, blur sigma 1.0, 60% downscale,
+and shadow/vignette. The A3 targets are Answer-F1 retention >=0.90, worst-slice >=0.60 and false-answer
+rate <=0.05.
+
+AI:
+Then Section 7 should explicitly state that A2 is preparing the evidence needed to make those A3
+numbers achievable.
+
+For example, if table rows are flattened, a rotation perturbation can cause the reader to lose a
+column and the answerer cannot recover it. If the chunk contains the header and row, the downstream
+agent has a better chance of grounding the answer.
+
+Likewise, if the corpus version is not pinned, your A3 gold chunk IDs can become invalid after a
+re-ingest. That is why corpus_64f400d6, per-file SHA-256 and meta.json are MLOps requirements rather
+than administrative details.
+
+ME:
+I want the final reflection to show that I didn't just follow AI suggestions.
+
+AI:
+Then make disagreement part of it.
+
+For example, you accepted the measured table detector but rejected the idea that HNSW should automatically
+be called faster. You accepted semantic row chunking but refused to patch the quarry failure after
+inspecting one page. You accepted bge-small for reproducibility but explicitly refused to claim it beats
+BGE-M3 without a benchmark.
+
+That demonstrates that the AI was used as a technical reviewer and debugging partner, while repository
+measurements and experiments remained the authority.
+
+=== REFLECTION ===
+
+What I accepted:
+I accepted the retrieval-unit-first way of designing Stage 2 and Stage 4. I also accepted measured
+thresholds instead of generic layout rules, figure-first ordering, structure-aware table chunks,
+explicit index metadata, and structural typing for the governance seam.
+
+What I changed:
+I changed table detection after measuring prose/table separation, changed figure detection to operate
+on grayscale before line grouping, fixed the silent regions.jsonl overwrite, bounded chunk overlap to
+256+32, added HNSW-vs-flat measurements, fixed the PII regex, and moved corpus-specific metadata into
+auditable JSONL side tables.
+
+What I rejected:
+I rejected DocLayout-YOLO as the primary layout solution because its training classes and assumptions
+do not match our historical plates and tables. I rejected claiming HNSW is faster on a 2,902-vector
+index. I rejected claiming bge-small is more accurate than BGE-M3 because we did not measure BGE-M3.
+I also rejected fixing the quarry failure immediately because that would risk tuning the A2 design
+against one inspected example.
+
+What the AI contributed:
+The most useful interactions were debugging silent failures and forcing each design choice to include
+a cost and a condition that would change it. The AI helped identify why the manifest was being truncated,
+why the PII regex could become expensive, and why the retrieval failure was a representation problem
+rather than simply a "bad embedding."
+
+What I learned:
+The knowledge base is not just an index. It is a sequence of information-preserving contracts. If
+layout loses table columns, chunking cannot recover them. If chunking loses the caption, retrieval
+cannot distinguish repeated tables. If provenance changes without versioning, A3 gold labels can point
+to different chunks. The quality of the final agent therefore depends on preserving the right evidence
+at every earlier stage.
