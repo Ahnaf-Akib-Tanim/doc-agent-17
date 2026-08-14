@@ -1,3 +1,35 @@
+# Biodiversity & Species Knowledge Assistant (BSKA) — team 17
+
+An agent that reads scanned palaeontology monographs (1853–1945) and answers a curator's questions
+grounded in them, with a citable page and region.
+
+| | |
+|---|---|
+| **Domain** | biodiversity & species knowledge — historical palaeontology monographs |
+| **Data speciality** | **table/figure-heavy** — 97 pages carry a table, 96 are full-page lithographic plates |
+| **Primary NFR** | **robust / reliable** — answer-F1 retention ≥ 0.90 under perturbation, worst-slice ≥ 0.60, false-answer ≤ 0.05 |
+| **Declared bonus** | semantic (structure-aware) chunking |
+| **Corpus** | 4 BHL/Internet Archive volumes · 904 pages · 240,893 words · link-only (`scripts/get_data.sh`) |
+
+### A2 status — the knowledge base is built
+
+```bash
+bash scripts/get_data.sh        # fetch + SHA-256 verify the corpus
+bash scripts/build_index.sh     # ONE command: PDFs → data/index/
+```
+
+765 pages indexed · 3,626 layout regions · **2,902 chunks** · 384-d · FAISS HNSW.
+Reading quality corpus-wide **CER 6.20% / char-F1 98.09%** against an independent second reader,
+beating the Internet Archive OCR text layer embedded in the same PDFs (CER 8.65%) — and the advantage
+is concentrated on tables (+8.7 CER points) and plates (+22.0), i.e. on the declared data speciality.
+
+**Start here:** `grading_kit/manifest.yaml` (the single entry point) → `notebooks/kb_demo.ipynb`
+(OCR quality + a working retrieval, with outputs) → `configs/design_choices.md` →
+`reports/pipeline_diagram.md`. A1 carry-overs: `configs/task.yaml`, `data/provenance.md`,
+`notebooks/eda.ipynb`, `grading_kit/heldout_pages/` + `labels.jsonl`.
+
+---
+
 # doc-agent — start here
 
 **New here? Read `SUBMISSION.md` first (how to submit), then `handbook/01-START-HERE.pdf`.**
