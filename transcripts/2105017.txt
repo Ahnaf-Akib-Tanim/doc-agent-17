@@ -1,0 +1,382 @@
+=== HEADER ===
+Team member name    : Gourove Roy
+Student number      : 2105017
+Project name        : Biodiversity & Species Knowledge Assistant (BSKA)
+Milestone           : Assignment 2 — Build the Knowledge Base
+Worked sections     : 3 (Components & Options We Considered), 5 (Evidence It Works)
+Code owned           : Stage 3 — vision/ocr.py; OCR evaluation; notebooks/kb_demo.ipynb;
+                       grading_kit/heldout_pages/ and labels.jsonl
+
+=== FULL AI–HUMAN CONVERSATION ===
+
+ME:
+I am responsible for Stage 3 and Section 5. I want this transcript to show actual technical reasoning
+around the OCR choice and evaluation, because Section 3 specifically asks for options we compared,
+our choice and why, and at least one reproduced/adapted method.
+
+A1 listed baidu/Unlimited-OCR, but in A2 the implementation is Qwen/Qwen3-VL-8B-Instruct. We run it
+page-by-page in fp16 on two T4 GPUs. The prompt is structured rather than just "read this image":
+simple tables are emitted as Markdown, wide tables use HTML/colspan, blank pages follow an explicit
+blank-page rule, and text inside figures is explicitly transcribed.
+
+How would you present the checkpoint change without making it look like we ignored A1?
+
+AI:
+Do not hide the change. Section 3 is specifically designed to expose decisions like this.
+
+A1 gave you a candidate. A2 is where you implement and measure the candidate against alternatives.
+The correct structure is:
+
+1. State the A1 candidate.
+2. State the A2 implementation.
+3. Explain why the A2 reader was selected for this corpus.
+4. Reproduce at least one existing method or pretrained approach.
+5. Compare the choice against a baseline under the same evaluation protocol.
+
+Your Qwen implementation qualifies as a pretrained published method that you adapted through a
+structured prompt. But because a marker could reasonably ask whether this is simply "using a model,"
+you should make the comparison stronger by reproducing a genuinely different architecture as well.
+
+TrOCR is already in your configuration and is a natural contrast because it is a line-level recognizer.
+That gives you a technically meaningful comparison: page-level VLM with structure-aware prompting versus
+line-level OCR that depends on the segmentation produced by Stage 2.
+
+The key is to compare them against the same held-out pages and the same gold, not to compare unrelated
+runs.
+
+ME:
+I implemented the TrOCR path. The layout region is cropped, then horizontal ink profiles split the
+region into lines, and each line goes through microsoft/trocr-base-printed.
+
+The problem is performance. On CPU it takes around five minutes per page. After four held-out pages,
+CER ranges from about 4% to 71%. I stopped the run because it was clearly not going to be a practical
+full-corpus comparison.
+
+AI:
+Stopping is the correct decision, and the transcript should explicitly explain why.
+
+First, four pages are enough to demonstrate feasibility problems, but not enough for a statistically
+meaningful corpus benchmark. Therefore do not report "TrOCR CER = X%" as if it were a corpus result.
+Report the four observed pages and their range, plus the wall-clock cost.
+
+Second, the failure is architectural rather than simply computational. TrOCR is a line recognizer.
+Your corpus contains two-column prose, measurement tables, and full-page lithographic plates. A line
+recognizer receives a crop and recognizes the line; it does not inherently know that two numeric tokens
+belong to different table columns or that a caption belongs to a particular figure.
+
+That means TrOCR inherits all the weaknesses of your line segmentation and reading-order decisions.
+If the layout stage gets the line order wrong, TrOCR can produce perfectly plausible line transcriptions
+that are assembled into the wrong page sequence.
+
+So the rejection can be justified using two dimensions: the observed CPU cost and the mismatch between
+the model's input/output abstraction and the corpus's page-level structure.
+
+ME:
+That gives me a real alternative, but I still need a baseline for the headline Qwen result. I don't
+want to fabricate another neural OCR model simply to put a number in a table.
+
+The PDFs themselves contain Internet Archive OCR text. Can that be treated as a baseline?
+
+AI:
+Yes, and it is arguably more useful than inventing another model.
+
+The embedded Internet Archive OCR is page-aligned with the same scans you ingest, so you can compare
+the same pages under the same gold transcriptions. It is also directly relevant to your A1 history,
+because the earlier ligature/orthography analysis used that OCR layer.
+
+The important thing is to define the comparison carefully. Your Qwen output is a page transcription
+generated from the scanned image. The IA baseline is the existing text layer extracted from the same
+PDF. Both should be normalized only in ways that are part of the stated evaluation protocol, and the
+gold should remain independent of both systems.
+
+Then report corpus-wide CER, WER and char-F1, but do not stop there. Because your A1 speciality is
+table/figure-heavy, slice the result by content kind and scan-quality band.
+
+ME:
+I ran it across all 777 non-empty pages. Qwen is CER 6.20%, WER 11.70%, char-F1 98.09%. The IA baseline
+is CER 8.65%, WER 14.74%, char-F1 97.11%.
+
+By content kind:
+prose 4.85% vs 5.88%
+tables 12.93% vs 21.59%
+plates 13.30% vs 35.29%
+
+Qwen is better everywhere, but the table and plate differences are much larger.
+
+AI:
+That slice is more important than the pooled average.
+
+The corpus speciality says the load-bearing content is tables and plates. On prose, the reader improves
+CER by only about one percentage point. On tables, the improvement is roughly 8.7 percentage points.
+On plates, it is roughly 22 percentage points.
+
+That shape is strong evidence that the choice of reader is aligned with the actual problem. A generic
+OCR system might improve average text transcription while still failing the content the curator cares
+about. Your results show the opposite: the largest gains occur on the hard structured/visual content.
+
+However, avoid saying the Qwen reader "solves" plates. A 13.30% CER is still substantial. Your claim
+should be comparative: Qwen substantially reduces the error relative to the embedded baseline on the
+content types that motivated the project.
+
+ME:
+The quality-band results are:
+clean 4.89% vs 5.11%
+faint 7.83% vs 12.43%
+skewed 5.45% vs 18.89%
+noisy 22.05% vs 41.89%
+
+I calculated clean-to-noisy char-F1 retention as about 0.933 for Qwen and 0.807 for IA.
+
+AI:
+That is useful for the robustness story, but make the scope explicit.
+
+A3's primary NFR is Answer-F1 retention under a fixed perturbation suite. You cannot call the OCR
+retention itself the final NFR result. What you can say is that the reading stage already shows a
+similar robustness profile: the quality-band degradation is substantially smaller for Qwen.
+
+This also supports the Stage 1 decision not to blindly enhance every page. If your reader remains
+relatively stable across the natural quality bands, an aggressive generative repair stage becomes harder
+to justify.
+
+The quality bands should also be reported per volume where possible, because the document split is
+confounded with volume characteristics. Leidy is the test document and is also the faintest volume.
+A single pooled number could hide that.
+
+ME:
+For the held-out evidence, we have 16 pages and 27,076 gold characters. These pages were kept out of
+threshold calibration, and the 17 calibration pages are excluded by name.
+
+Qwen gets micro CER 9.18%, WER 11.45%, char-F1 97.52%. IA gets CER 11.11% and char-F1 94.80%.
+Without plates, Qwen CER is 8.82% and char-F1 97.73%.
+
+AI:
+That should be the headline evidence rather than the full-corpus average.
+
+The corpus-wide number tells us what happened at scale, but the held-out slice is the cleaner claim
+because it was not used to tune the preprocessing thresholds. Make that distinction explicit.
+
+Also report the plate-excluded result because the plate pages are short and structurally unusual. You
+are not hiding the plate result; you are showing both the result on the intended speciality and the
+result on the more stable text-heavy subset.
+
+The important methodological sentence is: "The 16-page slice was held out before threshold tuning,
+and the 17 calibration pages are excluded by name." That tells a marker the evaluation was not tuned
+against the final pages.
+
+ME:
+There is a page with a bizarre metric combination. leidy_1853_p0151 gets 73.5% CER but 96.3%
+char-F1. The gold has only about ten words.
+
+I initially thought this was a bug in the scoring code.
+
+AI:
+It may be a property of the metric rather than a scoring bug.
+
+CER is edit distance normalized by the number of reference characters. With only around ten words,
+a small number of insertions/deletions or a sequence displacement can dominate the denominator. Character
+F1 instead measures character overlap, so it can remain high even when the sequence is poor.
+
+Do not silently remove that page. Use it to justify reporting micro-averaged CER and char-F1 together,
+and explain why short plate pages are unstable at the individual-page level.
+
+There is another reason to keep it: it shows why your later agent evaluation needs answer-level metrics.
+A retrieval system can have strong character overlap while still placing a number under the wrong
+header. The OCR evaluation is necessary, but it is not sufficient.
+
+ME:
+That connects to the next issue. The gold transcriptions are produced by Gemini 3 Flash, while our
+reader is Qwen3-VL. Both are VLMs. I am uncomfortable calling Gemini "gold" when it is another model.
+
+AI:
+You should be uncomfortable with that, and the transcript should say so.
+
+The evaluation is still useful, but the oracle has a known limitation. Two VLMs can share conventions
+about hyphenation, running headers, punctuation, or table serialization. That can inflate agreement
+without proving that the reader exactly matches the pixels.
+
+The right response is not to discard the evaluation. It is to test whether the suspected bias explains
+the observed pattern and to state the limitation.
+
+You already have a useful shape test. The Qwen-versus-IA improvement is about one CER point on prose,
+8.7 on tables and 22 on plates. If the advantage came mostly from shared VLM formatting conventions,
+we would expect a more uniform effect across page types. The large plate gap suggests a genuine
+capability difference in interpreting text embedded in figures.
+
+But that does not make Gemini a perfect gold. The strongest A3 improvement would be a human-transcribed
+held-out set. The 16 pages are manageable enough that hand adjudication would substantially strengthen
+the claim.
+
+ME:
+We visually checked all 16 held-out pages against the page images, but I agree that human transcription
+would be stronger.
+
+Another A1 issue was ligatures. A1 predicted an 80.9% penalty and proposed orthography/ligature
+normalization. With our actual Qwen reader, the ligature group is 97.9% exact-form reproduction and
+controls are 96.9%.
+
+AI:
+Then the correct engineering decision is to drop that planned work from A3.
+
+Notice the subtle methodological point: A1's prediction was based on the Internet Archive OCR, but A2
+is measuring Qwen. You cannot automatically transfer a failure measured in one reader to another reader.
+
+Your result does not prove ligatures are irrelevant in all historical OCR. It only says the predicted
+penalty is not a priority for this reader and corpus. That is enough to reallocate effort toward failures
+that are actually observed.
+
+This is a strong design-table statement: "A1 predicted a large ligature penalty; measured against our
+reader it is no worse than controls; therefore the work is dropped unless a future reader shows the
+failure."
+
+ME:
+I also found a security/reproducibility warning. The model loading code uses from_pretrained without
+a revision pin. The scan flags B615 on both Qwen and TrOCR.
+
+Is that really relevant to an OCR benchmark, or is it just a security scanner being overly cautious?
+
+AI:
+It is relevant because your benchmark is supposed to be reproducible.
+
+A model identifier such as Qwen/Qwen3-VL-8B-Instruct can resolve to a newer repository revision later.
+If the weights change while the code remains identical, a future run can produce different OCR output
+and therefore different CER. The paper or assignment result would then no longer be tied to a fixed
+model artifact.
+
+You do not need to rerun the entire OCR corpus to solve this. Obtain the immutable commit SHA for the
+checkpoint you actually evaluated and pass it as revision=. The cached OCR artefacts remain the measured
+outputs, while the code now states exactly which weights those outputs came from.
+
+Do the same for TrOCR. Also leave a comment explaining why the revision is pinned. Otherwise a future
+cleanup might remove what looks like an unnecessary argument.
+
+ME:
+Pinned both revisions. Now I want to talk about the retrieval demo because Section 5 requires one
+working retrieval. I have a successful measurement query, but I also have the quarry-table failure.
+
+The successful one retrieves the correct row with the table header. The failure asks which animal is
+quarry 42 in diagram 1 of Quarry 13 and returns the wrong repeated table.
+
+AI:
+Show both.
+
+The working retrieval demonstrates the required functionality. The failure demonstrates whether the
+knowledge base architecture has a known boundary. You should never sacrifice the latter just because
+the assignment asks for a positive demo.
+
+The successful measurement example is especially useful because the retrieval unit contains the row
+and the header context. That proves your semantic chunking choice is doing something meaningful:
+the number is not retrieved as an isolated token.
+
+The quarry failure is even more valuable for A3 because it is structurally explainable. Gilmore repeats
+the same table fourteen times. Your row-per-chunk strategy creates fourteen near-identical candidates.
+The top five dense scores are within 0.011, and the distinguishing "diagram 1" token lives in the
+caption rather than the row.
+
+That is not a random retrieval miss. It is evidence that the chunk boundary is missing one important
+piece of context.
+
+ME:
+So for A3 we should carry the caption/table id into every row chunk, use BM25 plus dense retrieval
+with reciprocal-rank fusion, rerank the top 50 with bge-reranker-base, and use a grounding gate that
+doesn't allow numeric answers unless the row/header evidence is present.
+
+AI:
+Yes, and the ordering matters.
+
+If you immediately add a cross-encoder, you may improve the score while hiding a representation problem.
+Carry the caption/table ID first because it restores information at almost no retrieval cost.
+
+Then hybrid retrieval addresses a complementary problem. BM25 is useful when the query contains an exact
+historical term, specimen number, figure number or spelling that dense embeddings may smooth away.
+
+Then reranking lets a stronger query-candidate model compare the full text interaction among the top
+50. It is appropriate when a bi-encoder produces a cluster of semantically similar candidates.
+
+Finally, grounding should be an independent safety boundary. Even if retrieval ranks a row highly,
+the answerer should not emit a numeric claim unless the evidence supports which header the number belongs
+to.
+
+Your weak-score rule can then sit around this stack: below 0.35, widen k by 10; stop and abstain at
+k=40. Also use the top-five score spread because the quarry failure demonstrates that absolute score
+alone is not enough.
+
+ME:
+I want to be precise about the four-page TrOCR test too. Should I include the 4–71% CER range in the
+main table?
+
+AI:
+I would put it in the methods/options discussion, not alongside the full Qwen and IA benchmarks.
+
+The main table should contain measurements with comparable sample sizes and evaluation procedures.
+The TrOCR experiment is a feasibility probe: four pages, CPU execution, roughly five minutes per page,
+and a very wide observed CER range. That is enough to justify not adopting it, but not enough to claim
+a corpus-wide performance estimate.
+
+This distinction actually improves Section 3 because it shows you understand experimental validity.
+You are not using a tiny sample to make a big statistical claim.
+
+ME:
+For the OCR prompt, I want to explain why structured output matters. It isn't just a prompt engineering
+detail. The later chunker expects structure.
+
+AI:
+Exactly. The prompt is part of the interface contract between Stage 3 and Stage 4.
+
+For simple tables, Markdown gives the downstream chunker an explicit row/column representation. For wide
+tables, HTML with colspan can preserve multi-column headers. The blank-page rule prevents the reader
+from hallucinating text where the preprocessing stage already determined the page is blank. The explicit
+figure instruction matters because text inside a plate is part of the evidence.
+
+The important architectural statement is that OCR does not simply output a string. It outputs a structured
+representation whose spatial semantics are preserved well enough for the chunker and retriever to use.
+
+ME:
+So my Section 5 evidence story should be: first show corpus-wide improvement, then content-kind slices,
+then quality bands, then held-out evidence, then the working retrieval, and finally the known failure.
+
+AI:
+Yes. That ordering makes the evidence progressively more specific.
+
+Start with scale: 777 non-empty pages and 1,426,845 gold characters, Qwen CER 6.20% versus IA 8.65%.
+
+Then show relevance: tables and plates receive the largest gains.
+
+Then show robustness: quality-band degradation and retention.
+
+Then show evaluation integrity: 16 held-out pages, 27,076 characters, calibration pages excluded.
+
+Then show the system works end-to-end with one real retrieval.
+
+Then show the limitation and convert it into an A3 engineering task.
+
+That is much stronger than presenting only a single OCR percentage.
+
+=== REFLECTION ===
+
+What I accepted:
+I accepted the idea that OCR quality has to be evaluated in relation to the project's declared
+data speciality. The table and plate slices are more informative than the pooled average because those
+are the pages the curator actually needs. I also accepted reporting both CER and char-F1 because short
+plate pages make individual CER values unstable.
+
+What I changed:
+I changed the reader from the A1 candidate to Qwen3-VL, reproduced a TrOCR alternative as a feasibility
+comparison, adopted the Internet Archive OCR as the page-aligned baseline, pinned model revisions,
+and reorganized the evaluation around corpus-wide, content-kind, quality-band and held-out evidence.
+
+What I rejected:
+I rejected reporting four TrOCR pages as a corpus benchmark. I rejected treating Gemini 3 Flash as
+unqualified human-equivalent ground truth. I also rejected hiding the quarry retrieval failure simply
+because the assignment asks for one successful retrieval.
+
+What the AI contributed:
+The useful contribution was methodological challenge. It repeatedly forced me to distinguish a
+measurement from a claim: four pages are not a benchmark; model-produced gold is not perfect ground
+truth; pooled CER does not describe table/plate performance; and a high retrieval score does not
+guarantee the right table row.
+
+What I learned:
+The most important result from Stage 3 is that "OCR accuracy" is not one number. A reader can preserve
+almost all characters while producing the wrong reading order, and it can score well on prose while
+remaining much weaker on plates. For a knowledge base, structural correctness matters because the next
+stage must retrieve the right evidence, not merely similar text.
