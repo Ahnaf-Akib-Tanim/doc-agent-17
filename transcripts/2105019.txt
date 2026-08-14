@@ -1,0 +1,451 @@
+=== HEADER ===
+Team member name    : Niloy Das Robin
+Student number      : 2105019
+Project name        : Biodiversity & Species Knowledge Assistant (BSKA)
+Milestone           : Assignment 2 — Build the Knowledge Base
+Worked sections     : 1 (Recap from A1), 2 (The Structure We Exploit), 6 (The Plan for A3)
+Code owned           : Stage 1 ingest — loader.py, preprocess.py, enhance.py;
+                       data/validate.py; data/versioning.py; scripts/get_data.sh;
+                       data/provenance.md
+
+=== FULL AI–HUMAN CONVERSATION ===
+
+ME:
+I am working on Sections 1, 2 and 6, but I also own most of Stage 1. I want to make the transcript
+useful as evidence of actual engineering work rather than just asking the AI to explain what our
+pipeline does.
+
+The assignment says the front half has to turn scanned pages into searchable text: ingest and clean,
+optional enhancement, layout, OCR, chunking, embedding and indexing. Our A1 choices are unchanged:
+the domain is biodiversity/species knowledge from historical palaeontology monographs, the data is
+table/figure-heavy, and the A3 NFR is robustness/reliability with answer-F1 retention >= 0.90 under
+the fixed perturbations.
+
+Before I start changing anything, how should I structure my work so Section 1 does not accidentally
+change an A1 decision while Sections 2 and 6 still reflect what we actually implemented?
+
+AI:
+I would keep those three sections conceptually separate.
+
+Section 1 is not the place to redesign the project. The form explicitly says to copy the A1 choices
+and not change the success metric because A3 will be judged against it. So preserve the exact problem
+statement: a vertebrate-palaeontology collections curator wants to know whether a measurement or
+figured type specimen has already been published and, if so, which volume, page and plate should be
+cited. The data speciality is table/figure-heavy, and the primary answer metric is Answer-F1 on the
+verifiable subset, with clean-page target >= 0.70, retention >= 0.90, worst-slice >= 0.60 and
+false-answer rate <= 0.05.
+
+Section 2 is where you explain why ordinary document processing is not enough for this corpus. The
+load-bearing information is not just text. It is spatially structured information: a number belongs
+to a row, a row belongs to a table, a plate has a legend, and a legend can be on a different leaf.
+Your preprocessing and layout choices should therefore preserve information that a generic OCR
+pipeline would normally throw away.
+
+Section 6 should then connect the current A2 evidence to the next milestone. Do not write "we will
+improve retrieval" as a generic future-work sentence. State the actual failure modes you observed:
+near-identical quarry-table rows, weak/flat retrieval scores, reading-order errors on the page-cache
+path, and the fact that the OCR oracle is model-produced. Then show how each failure maps to an A3
+component.
+
+That separation will make the transcript demonstrate reasoning: A1 defines the invariant objective,
+A2 measures the front half, and A3 is driven by the failures A2 actually exposed.
+
+ME:
+That makes sense. The corpus itself also changed after A1. A1 used Allen 1876, Leidy 1853 and Colbert
+1945, but the A2 corpus is Leidy 1853, Lucas 1901, Gilmore 1914 and Colbert 1945. We now have 904
+source pages and 765 kept/non-blank pages. I do not want the marker to think we silently changed the
+experiment.
+
+The reason was that Gilmore and Lucas are much more aligned with our declared data speciality. Gilmore
+has quarry and measurement tables and repeated lithographic material, while Lucas is strongly
+figure-led. How should I document that without making Section 1 inconsistent?
+
+AI:
+Treat it as a corpus-version change, not as a change to the A1 problem statement.
+
+The important distinction is between the experimental objective and the concrete A2 corpus. The
+objective remains exactly the same, so Section 1 can remain unchanged. The corpus used to instantiate
+that objective can change if you record why and make the change reproducible.
+
+I would put the rationale in data/provenance.md and in the task/configuration metadata. Say explicitly
+that Allen 1876 from A1 was replaced by Gilmore 1914 and Lucas 1901 was added for A2 because the
+resulting corpus better exercises the declared table/figure-heavy speciality. Then record the
+content-addressed corpus identifier, corpus_64f400d6, and the per-file SHA-256 values.
+
+There is also a methodological advantage here. You are not choosing a corpus because it happens to
+make the current reader score well. You are choosing it because its content matches the problem
+definition already made in A1. That distinction is important in the transcript.
+
+Do not say "we changed the dataset because the old one was bad." Say that A2 instantiated the unchanged
+domain and speciality with a revised, provenance-tracked set of four licensed PDFs. Then your design
+story remains coherent.
+
+ME:
+I had an actual ingestion problem while doing this. One Leidy PDF downloaded successfully but was
+smaller than the expected artifact. It still opened, so I initially thought the pipeline was fine.
+Later the page count was short by fifteen pages.
+
+I changed get_data.sh so the download is checked against the recorded SHA-256 and fails if the hash is
+wrong. Is that overkill for an academic project?
+
+AI:
+No. In this particular project it is directly connected to evaluation validity.
+
+A PDF opening successfully only establishes that the file is syntactically readable. It does not
+establish that it is the intended artifact. Your later validation floors are deliberately broad:
+at least 300 pages, at least 60,000 words, unique page IDs, existing images, and a functional
+document-to-split mapping. A truncated scan could still pass those broad floors while silently removing
+pages from the corpus.
+
+The SHA-256 check answers a different question from validate.py. The checksum says, "these bytes are
+the expected source artifact." The corpus validator says, "the artifact was successfully converted
+into the expected page representation and metadata." You want both layers.
+
+The failure itself is useful evidence. A reproducible pipeline should fail closed when the source
+artifact is not the artifact you evaluated. Otherwise you can get a very clean OCR benchmark that was
+actually produced from a different or incomplete scan.
+
+ME:
+I also moved the split assignment into loader.py. The split is assigned once at document level:
+Lucas and Gilmore are train, Colbert is validation, and Leidy is test. Why is document-level splitting
+important enough to mention in the transcript?
+
+AI:
+Because page-level random splitting would be misleading for this corpus.
+
+Historical monographs contain repeated typography, running headers, recurring table formats, repeated
+specimen terminology and sometimes almost identical pages. If you randomly split pages, page 117 of
+one document can be in training while pages 118 and 119 appear in test. The model or the heuristics
+then encounter extremely similar structure on both sides of the evaluation boundary.
+
+Document-level splitting makes the held-out volume a genuine distribution shift within the same domain.
+Leidy is especially useful as the test document because it is the difficult volume: its kept pages
+have the faintest ink distribution and it contains many plates. That makes the test slice useful for
+the robustness question rather than merely proving that the cleanest volume can be processed.
+
+Also, assigning the split in loader.py and nowhere else prevents downstream stages from inventing a
+second source of truth. pages.jsonl should carry the assignment and every later artifact should inherit
+it.
+
+ME:
+That leads to preprocessing. The obvious recipe would be "deskew every page, despeckle every page,
+binarize every page." But our measured skew distribution is surprisingly small: median 0.00 degrees,
+mean absolute skew 0.13, p90 0.25, and only around 1% of text pages exceed 0.5 degrees.
+
+So I set a gate at |skew| > 0.5 degrees and never deskew plates. The implementation searches from
+-3 to +3 degrees in 0.25-degree steps using horizontal projection-profile variance.
+
+Is that a sufficiently strong justification, or should I just say deskew improves OCR?
+
+AI:
+Do not say the generic statement. Your measured distribution gives you a much stronger justification.
+
+Your choice is not "deskew is good." It is "deskew is conditionally applied because 99% of relevant
+text pages do not need it." For a scanned historical corpus, unnecessary resampling can blur small
+strokes, alter character boundaries, and change the pixels that later serve as citation evidence.
+
+The projection-profile search is also explainable. For a page containing horizontal text lines, the
+correct rotation tends to increase the concentration of ink into horizontal bands. Maximizing the
+variance of the horizontal projection therefore gives you a simple, label-free estimate of skew.
+
+The 0.5-degree threshold should be described as a measured gate rather than a magic constant. You
+measured the distribution first, then selected a threshold above the normal variation. The fact that
+only about 1% of text pages cross it means the operation is targeted.
+
+The plate exemption is equally important. A plate is not merely another text page. You need its exact
+spatial content later, and unnecessary interpolation on a full-page lithograph can modify the source
+pixels. So store raw and processed versions separately.
+
+ME:
+For despeckling I use a maximum connected-component size of 2 pixels and a 3-pixel proximity rule.
+The idea is to remove isolated specks but preserve components that touch or lie close enough to a
+real character stroke.
+
+I initially implemented it with a loop over components and np.where(labels == label). It became very
+slow on the full pages.
+
+AI:
+That is a classic image-processing performance trap. The semantic rule is fine, but the implementation
+repeatedly scans the whole label image.
+
+You can preserve the same rule while making it vectorized. Compute component areas once, identify the
+small components, construct a mask of the larger components, dilate that mask by the proximity radius,
+and then use the dilated mask to determine which small components are adjacent to meaningful content.
+You can also use bincount over the connected-component labels rather than calling np.where for each
+label.
+
+More importantly, measure how much of the page you are removing. The metadata should contain something
+like despeckled_frac so later you can correlate aggressive cleaning with OCR quality. If Gilmore has
+a substantially higher speckle fraction than Lucas, that becomes part of your quality-band analysis.
+
+Do not optimize away the audit trail. In document processing, a fast destructive transformation is
+worse than a slow transparent one.
+
+ME:
+After vectorizing it, preprocessing went from roughly 15 seconds/page to about 0.11 seconds/page.
+I now store skew_deg_raw, skew_deg_applied and despeckled_frac.
+
+I also keep three representations: raw, clean grayscale, and reader image. Sauvola 31/0.34 is only
+used to create the separate reader image.
+
+AI:
+That separation is one of the strongest design decisions in Stage 1.
+
+The reader image and the layout/figure image have different consumers. The OCR reader benefits from
+local contrast normalization because faint historical text may disappear under a global threshold.
+But the figure detector benefits from the global texture and solidity of a plate, which Sauvola can
+break apart.
+
+More importantly, never overwrite the raw grayscale page. Your A3 agent will eventually need citations
+and bounding boxes. If a citation crop is produced from a modified image, you have made it impossible
+to distinguish the source pixels from preprocessing artefacts.
+
+This is why the side-table metadata matters too. The locked Page contract can remain small while
+pages_meta.jsonl records kind, quality band, raw/applied skew, contrast, separation, speckle and the
+three image paths.
+
+ME:
+The strangest bug was plate detection. I was running the figure detector after Sauvola and the blank
+filter. Gilmore contains 40 full-page plates, but the detector found almost none.
+
+Then I realised the order itself was wrong. If a plate is mostly texture, Sauvola breaks it into
+small components. And if I apply the blank filter first, some pages can be classified as blank before
+the figure detector sees them.
+
+AI:
+Yes. This is exactly the kind of corpus-specific structural reasoning Section 2 should capture.
+
+The generic pipeline order "clean -> blank filter -> lines -> figures" assumes that figures are a
+secondary decoration around text. Your corpus violates that assumption. The plates are load-bearing
+evidence, so the detector must preserve them before operations that were designed around text pages.
+
+Use the grayscale representation for figure detection. Your measured detector uses a global threshold
+plus close(15) and open(9), then requires a figure candidate to occupy at least 5% of page area and
+contain at least 10% ink after morphology. That is very different from asking whether there are lots
+of text-like connected components.
+
+And critically, run figure detection before line finding and before blank-page filtering. Once a figure
+is identified, mask it from the line detector so lithographic texture does not become twelve fake text
+lines. The caption can then remain as a text block.
+
+ME:
+That change gave 96 plates across the corpus. It also fixed another problem: captions under embedded
+images were previously merged into the image blob. With figure-first masking, the caption becomes a
+separate text region.
+
+For blank pages, Otsu was producing something ridiculous. A blank leaf could report around 40% ink
+because Otsu always returns a split even when the histogram is basically one class.
+
+I added a 45-gray-level floor relative to the page median.
+
+AI:
+That is a good example of using a measured failure to derive a threshold.
+
+Otsu's method is looking for a threshold that separates two classes; it does not understand the
+semantic concept of "blank page." If the page is nearly uniform, the optimization can still return
+a threshold that divides paper noise into an apparent foreground class.
+
+Your 45-gray-level floor adds a semantic condition: a pixel must be sufficiently darker than the
+page's own background level before it contributes to ink coverage. The threshold should be documented
+as corpus-derived because you observed the failure directly.
+
+This also explains why the blank filter must happen after figure preservation. A page containing a
+light lithograph may have low ordinary text ink but is absolutely not blank.
+
+ME:
+The final corpus has 139 blank pages and 96 plates. The kept corpus is 765 pages. The validation floors
+are 300 pages and 60,000 words.
+
+I want to make sure those floors don't look arbitrary.
+
+AI:
+Explain their purpose rather than pretending they are statistical estimates.
+
+The floors are integrity guards against catastrophic truncation or empty ingestion. They are deliberately
+far below the healthy corpus size so a legitimate corpus revision does not fail simply because it lost
+a few pages. They are complemented by stronger structural checks: page IDs must be unique, image paths
+must exist, and doc_id -> split must be a function.
+
+The validation philosophy is especially important because your realistic failures are often silent.
+A missing plate does not necessarily raise an exception. A split leak does not necessarily raise an
+exception. A manifest can be valid JSON while containing the wrong pages. A chunk can exceed its token
+budget while still being perfectly valid text.
+
+Therefore validation should assert invariants, not just "the script finished."
+
+ME:
+Now for Section 2. I want to explain why spatial position is actually semantic here. A number in a
+table is meaningless if we lose which column it belongs to.
+
+For example, a row can contain "1 | 11" and the header tells us those are Inches and Lines. If the
+reader just flattens the row, retrieval can return the correct characters but the wrong meaning.
+
+AI:
+That is probably the clearest corpus-specific argument you can make.
+
+You should distinguish recognition invariance from layout invariance. The recognizer should ideally
+recognize the same glyph regardless of small translations. But the document representation cannot be
+translation-invariant because absolute relative position within the table determines the semantic
+role of the value.
+
+So your architecture separates two jobs. OCR answers "what characters are present?" Layout answers
+"where are those characters and how are they grouped?" Stage 4 then uses the layout structure to create
+retrieval units that preserve the relationship between row labels, headers and values.
+
+This is also why the table grid from Stage 2 must feed the chunker. If the grid is only used for a
+visual diagram and discarded before indexing, the pipeline has recovered the very information the
+retrieval system needs and then thrown it away.
+
+ME:
+For A3, the biggest issue I see is retrieval rather than preprocessing. The current chunking creates
+one unit per table row and carries the header. That's great for measurements, but Gilmore repeats the
+same quarry table fourteen times.
+
+The query "which animal is quarry number 42 in diagram 1 of Quarry 13" returns the wrong page. The top
+five dense scores are within 0.011.
+
+AI:
+That is an excellent A2-to-A3 failure because it is not a generic "retrieval is bad" statement. It
+identifies exactly where the representation loses information.
+
+The row chunk has the measurement semantics but lacks the distinguishing caption token "diagram 1."
+So the bi-encoder sees fourteen semantically similar rows and has insufficient evidence to separate
+them. A score spread of only 0.011 among the top five is also evidence that the candidates are ambiguous.
+
+For A3, I would sequence the fixes rather than applying everything at once.
+
+First, carry the table caption or table ID onto each row chunk. That restores the discriminating
+token without changing the retrieval model.
+
+Second, use hybrid dense + BM25 retrieval with reciprocal-rank fusion. Exact terms such as "diagram 1"
+or a historical spelling may be precisely the signal dense retrieval underweights.
+
+Third, rerank the top 50 with bge-reranker-base. A cross-encoder can inspect the full query-candidate
+interaction and is better suited to near-identical candidates than a single embedding similarity.
+
+Fourth, make grounding fail closed for numeric claims. If the retrieved evidence does not include the
+row and the relevant header context, the agent should not confidently emit a number.
+
+Finally, use score flatness as a weak-evidence signal. A high top score is not enough if the top five
+are almost tied.
+
+ME:
+The A3 agent plan already has a weak threshold of 0.35, k-step 10 and k-max 40. If top_score is below
+0.35, it widens k by 10 and searches again. Once k would exceed 40, it abstains.
+
+I also have an out-of-corpus probe where an unanswerable medical question tops out around 0.533 while
+answerable questions are around 0.85–0.92. That suggests the score is useful but not sufficient.
+
+AI:
+Exactly. The important distinction is between "a score threshold detects every failure" and "a score
+threshold is one signal in an evidence-gated controller."
+
+Your out-of-corpus probe shows that score magnitude carries information. But the quarry failure shows
+that high scores can still be ambiguous because the candidate set is tightly clustered. Therefore A3
+should use both absolute score and score spread, plus structural evidence.
+
+The mandatory behaviour is fail-closed. The agent should not manufacture an answer just because the
+retriever returned something plausible. If evidence remains weak after the maximum search budget,
+abstention is the correct outcome, and your A1 metric explicitly allows a correct abstention on an
+unanswerable item to count as a hit.
+
+ME:
+There is another A3 issue from OCR. gilmore_1914_p0069 gets 97.3% char-F1 but 36.3% CER. Almost every
+character is present, but the sequence is in the wrong order. Stage 2 calculates column-first reading
+order, but the page-cache replay path currently only types blocks; it doesn't actually reorder them.
+
+AI:
+That is a very important distinction between character accuracy and document usability.
+
+If a page has a table and prose and the characters are all present but serialized in the wrong order,
+a language model can still produce fluent text. The error is dangerous because the output can look
+reasonable while associating a value with the wrong sentence or column.
+
+The fix therefore belongs in the page-cache path, not in OCR model selection. Stage 2 already computes
+the intended column-first order; the cached replay must consume that order when reconstructing the page
+text. You should add a regression test around that exact page so the fix cannot silently disappear.
+
+This is also why the transcript should not treat OCR as a single scalar metric. Character F1, CER and
+reading order measure different failure modes.
+
+ME:
+One metric artefact is even more extreme. leidy_1853_p0151 has 73.5% CER but 96.3% char-F1, and the
+gold contains only about 10 words.
+
+AI:
+Keep it. Do not remove an ugly metric just because it looks bad.
+
+That page demonstrates why micro-averaged CER and char-F1 need to be reported together. CER is edit
+distance divided by the number of gold characters. On a ten-word plate, a few insertions, deletions
+or reorderings can dominate the denominator. Character F1 measures overlap differently and is less
+sensitive to the exact sequence.
+
+Your held-out reporting already has a sensible response: report the 16-page micro CER and WER, char-F1,
+and a version excluding plates. Then explain why plate pages are unstable as a per-page CER statistic.
+
+ME:
+For Section 6 I also want to mention that orthography/ligature normalization from A1 is being dropped.
+A1 predicted an 80.9% ligature penalty, but against our actual reader the measured result is 97.9% on
+the ligature group versus 96.9% on controls.
+
+AI:
+That is exactly the kind of evidence-driven plan change markers like to see.
+
+The key is not that "ligatures don't matter." The key is that A1's hypothesis was measured against the
+Internet Archive OCR, while A2 measured the actual Qwen reader. The predicted failure did not reproduce
+in the current system, so spending A3 engineering effort on it would be a poor allocation.
+
+You can state the rule explicitly: if an A1 risk does not appear in the A2 implementation, it is
+downgraded behind structural failures that do appear. The structural failures are more consequential:
+reading order, near-identical retrieval candidates, grounding and model-produced evaluation gold.
+
+ME:
+Finally, what should my reflection focus on? I don't want to write "AI helped me debug code."
+
+AI:
+Make the reflection about engineering judgement.
+
+For what you accepted, discuss measurement-driven thresholds, document-level splitting, figure-first
+processing and the separation of raw/clean/reader images.
+
+For what you changed, discuss the corpus version, conditional deskew, plate preservation, vectorized
+despeckling, checksum validation and the A3 retrieval plan.
+
+For what you rejected, discuss generic enhancement, end-to-end translation invariance, page-level
+random splits, and premature fixes tuned to one retrieval failure.
+
+For AI assistance, be specific about the role. The AI helped you generate hypotheses and challenge
+assumptions, but the repository measurements determined the final choices. That distinction is much
+more credible than saying the AI "designed the system."
+
+=== REFLECTION ===
+
+What I accepted:
+I accepted the principle that thresholds should be derived from the actual corpus rather than copied
+from a generic document-processing recipe. The 0.5-degree deskew gate, the 2-pixel despeckle rule,
+the 45-gray-level floor, and the table/figure thresholds are all justified through observed
+distributions or concrete failures. I also accepted document-level splitting because page-level
+splitting would make the evaluation too correlated with the training documents.
+
+What I changed:
+I changed the corpus provenance workflow so source bytes are SHA-256 verified. I made deskew conditional,
+kept raw/clean/reader images separate, moved figure detection before blank filtering and line finding,
+and made the Stage 1 metadata record the actual preprocessing decisions. I also changed the A3 plan
+from a generic "improve retrieval" task to specific caption propagation, hybrid retrieval, reranking,
+grounding and evidence-gated re-search.
+
+What I rejected:
+I rejected generative enhancement because only about 1% of text pages cross the deskew gate and the
+project is citation-oriented. I rejected end-to-end translation invariance because position carries
+table semantics. I rejected fixing the quarry-table failure immediately because it was discovered by
+looking at one page and should instead be evaluated systematically in A3.
+
+Where AI helped:
+The useful part was not code generation by itself. The useful part was challenging whether each
+engineering decision had a measurable reason and whether a local fix could damage a later stage.
+The final decisions were still based on the repository's measurements, outputs and failure cases.
+
+What I learned:
+The most important lesson from Stage 1 is that a knowledge base for historical documents cannot be
+treated as a simple OCR pipeline. The page's spatial structure is part of the information. Preserving
+that structure from ingest through retrieval is what makes the later answering agent possible.

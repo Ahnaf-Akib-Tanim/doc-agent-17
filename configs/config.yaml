@@ -1,14 +1,79 @@
 # THE place you set models & parameters. Code reads only from here.
 seed: 42
-device: cuda
+device: auto          # auto -> cuda when present, cpu otherwise. The A2 build runs on CPU.
 
-enhance:   {enabled: true,  model: "unet_small", type: "diffusion"}   # or "vae" / "none"
-layout:    {model: "detectron2:layout", score_thr: 0.5}
-ocr:       {model: "microsoft/trocr-base-printed", finetune: true}    # BASELINE = pretrained OCR
-embed:     {model: "sentence-transformers/all-MiniLM-L6-v2", dim: 384}
-index:     {type: "faiss:hnsw", chunk_tokens: 256, overlap: 32}
-retrieve:  {k: 10, k_step: 10, k_max: 40, weak_threshold: 0.35, rerank: true, reranker: "cross-encoder/ms-marco-MiniLM-L6-v2"}   # k_step/k_max/weak_threshold drive evidence-gated re-search
-agent:     {max_steps: 8, autonomy: "act-with-approval", budget_usd: 0.05}
+# Stage 1 — ingest. Every threshold below is set from a distribution measured in
+# notebooks/eda.ipynb on THIS corpus, not from a library default.
+ingest:
+  raw_dir: data/raw
+  work_dir: data/interim
+  dpi: 150                    # 150dpi keeps a 10pt body face ~20px tall — enough for line finding
+  deskew_gate_deg: 0.5        # only ~4% of pages exceed this; below it, rotating costs more than it fixes
+  skew_step_deg: 0.25
+  despeckle_max_px: 2         # where this corpus' speckle mass sits; plates are exempt
+  sauvola_window: 31
+  sauvola_k: 0.34
+  drop_blank_pages: true
+  max_pages_per_doc: null
+  splits:                     # DOCUMENT-level split — the leakage guard. Assigned here only.
+    lucas_1901: train
+    gilmore_1914: train
+    colbert_1945: val
+    leidy_1853: test          # faintest + most plates: the robustness NFR is measured here
+
+# Stage 1 — generative enhancement (C18-C19). OFF: see configs/design_choices.md, stage 1.
+enhance: {enabled: false, model: "clahe_unsharp", type: "classical", apply_to_bands: ["faint"], clahe_clip: 2.0, clahe_tile: 8}
+
+# Stage 2 — layout. Heuristic detector; the tuned knobs ARE the data-speciality enhancement.
+layout:
+  model: "heuristic:rlsa-cc-grid"
+  score_thr: 0.5
+  smear_frac: 0.020           # horizontal run-length smear, as a fraction of page width
+  block_gap_factor: 1.15      # vertical gap (x median line height) that starts a new block
+  min_gutter_frac: 0.020      # whitespace corridor width that counts as a column gutter
+  table_min_cols: 2           # whitespace-aligned columns needed to call a block a table
+  table_min_rows: 3
+  table_gap_rows: 0.60        # fraction of rows that must carry a wide internal gap
+  table_max_fill: 0.55        # prose fills ~0.72 of its own line span here; table rows ~0.40
+  table_gap_frac_width: 0.035 # a gap this wide (of block width) is a cell boundary, not a word space
+  figure_min_area_frac: 0.05   # a picture is >=5% of the page here
+  figure_min_density: 0.10   # ...and its bounding box is >=10% ink once stipple is fused
+  heading_height_factor: 1.30
+
+# Stage 3 — OCR. BASELINE = pretrained foundation model, prompted for structure.
+ocr:
+  model: "Qwen/Qwen3-VL-8B-Instruct"      # the shipped reader (fp16, 2xT4, page-level)
+  backend: "page-cache"                    # replay this reader's per-page transcriptions
+  cache_dir: "data/interim/ocr"
+  finetune: false                          # A3: lexicon-constrained decoding on a taxon gazetteer
+  fallback_on_miss: true
+  fallback_model: "microsoft/trocr-base-printed"   # published line recogniser, our CPU baseline
+  max_lines_per_region: 40
+  max_new_tokens: 64
+
+# Stage 4 — embed + index.
+embed:
+  model: "BAAI/bge-small-en-v1.5"
+  dim: 384
+  batch: 64
+  normalize: true            # cosine via inner product; keeps a 1-line table row comparable to a paragraph
+  query_prefix: "Represent this sentence for searching relevant passages: "
+  passage_prefix: ""
+  cache: true
+index:
+  type: "faiss:hnsw"
+  dir: "data/index"
+  chunking: "structure"      # structure | fixed  (fixed = the flat baseline we compare against)
+  chunk_tokens: 256
+  overlap: 32
+  min_chunk_tokens: 4
+  hnsw_m: 32
+  ef_construction: 200
+  ef_search: 64
+
+# Stages 5-9 — declared now, built in A3/A4.
+retrieve:  {k: 10, k_step: 10, k_max: 40, weak_threshold: 0.35, rerank: true, reranker: "BAAI/bge-reranker-base"}   # k_step/k_max/weak_threshold drive evidence-gated re-search
+agent:     {max_steps: 8, autonomy: "read-only", budget_usd: 0.04}
 rl:        {algo: "ppo", train_policy: false}                         # bonus: set true
 serve:     {batch: true}
 deploy:    {target: "hf-spaces"}
