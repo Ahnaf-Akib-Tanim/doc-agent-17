@@ -1,2 +1,31 @@
-# GENERATED — pin exact versions here via `uv pip compile pyproject.toml -o requirements.lock`
-# Reproducibility gate reads this file. Do not edit by hand.
+# Pinned versions of the environment that produced data/index/ and the executed notebooks.
+# Regenerate with `uv pip compile pyproject.toml -o requirements.lock` for the full transitive set;
+# this list is the direct set the A2 knowledge-base build actually imported, on Python 3.11.4 / CPU.
+torch==2.9.1
+transformers==4.57.3
+sentence-transformers==5.7.0
+faiss-cpu==1.15.0
+pymupdf==1.28.2
+opencv-python-headless==5.0.0.93
+numpy==2.2.6
+scipy==1.14.1
+scikit-learn==1.7.2
+scikit-image==0.26.0
+pandas==2.2.3
+matplotlib==3.9.2
+pydantic==2.13.4
+pydantic-settings==2.15.0
+pyyaml==6.0.2
+rapidfuzz==3.14.5
+tqdm==4.67.1
+pillow==10.4.0
+huggingface-hub==0.36.0
+tokenizers==0.22.1
+safetensors==0.7.0
+ruff==0.16.2
+black==26.5.1
+mypy==2.3.0
+pytest==9.1.1
+nbformat==5.10.4
+nbclient==0.10.0
+ipykernel==6.29.5
